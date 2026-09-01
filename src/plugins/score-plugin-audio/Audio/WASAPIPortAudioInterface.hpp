@@ -71,13 +71,21 @@ public:
         {
           auto dev_idx = Pa_HostApiDeviceIndexToDeviceIndex(i, card);
           auto dev = Pa_GetDeviceInfo(dev_idx);
-          if(dev->maxOutputChannels > 0)
-          {
-            auto raw_name = QString::fromUtf8(Pa_GetDeviceInfo(dev_idx)->name);
-            devices.push_back(PortAudioCard{
-                "WASAPI", raw_name, raw_name, dev_idx, dev->maxInputChannels,
-                dev->maxOutputChannels, hostapi->type, dev->defaultSampleRate});
-          }
+
+          // WASAPI endpoints are either capture or render, never both.
+          // Filtering on maxOutputChannels would drop every microphone,
+          // which makes it impossible to select an input device.
+          // Keep both and label them, like the ALSA backend does.
+          auto raw_name = QString::fromUtf8(dev->name);
+          auto pretty_name = raw_name;
+          if(dev->maxInputChannels == 0)
+            pretty_name = QObject::tr("(Output) ") + pretty_name;
+          else if(dev->maxOutputChannels == 0)
+            pretty_name = QObject::tr("(Input) ") + pretty_name;
+
+          devices.push_back(PortAudioCard{
+              "WASAPI", raw_name, pretty_name, dev_idx, dev->maxInputChannels,
+              dev->maxOutputChannels, hostapi->type, dev->defaultSampleRate});
         }
       }
     }
@@ -97,9 +105,19 @@ public:
   {
     auto dev_it = ossia::find_if(
         devices, [&](const PortAudioCard& d) { return d.raw_name == val; });
-    if(dev_it != devices.end())
+    if(dev_it == devices.end())
+      return;
+
+    // Each combo box only holds the devices matching its direction, so the
+    // position in `devices` is looked up through the item data.
+    const int dev_pos = (int)(dev_it - devices.begin());
+    for(int i = 0; i < combo->count(); i++)
     {
-      combo->setCurrentIndex(dev_it->out_index);
+      if(combo->itemData(i).toInt() == dev_pos)
+      {
+        combo->setCurrentIndex(i);
+        return;
+      }
     }
   }
 
@@ -110,61 +128,97 @@ public:
     auto w = new QWidget{parent};
     auto lay = new QFormLayout{w};
 
-    auto card_list = new QComboBox{w};
+    // Capture and render are distinct endpoints under WASAPI, so they get
+    // one combo box each, like the miniaudio backend does.
+    auto card_list_in = new QComboBox{w};
+    auto card_list_out = new QComboBox{w};
 
     // Disabled case
-    card_list->addItem(devices.front().pretty_name, 0);
-    devices.front().out_index = 0;
+    card_list_in->addItem(devices.front().pretty_name, 0);
+    card_list_out->addItem(devices.front().pretty_name, 0);
 
     // Normal devices
     for(std::size_t i = 1; i < devices.size(); i++)
     {
       auto& card = devices[i];
-      card_list->addItem(card.pretty_name, (int)i);
-      card.out_index = card_list->count() - 1;
+      if(card.inputChan > 0)
+        card_list_in->addItem(card.pretty_name, (int)i);
+      if(card.outputChan > 0)
+        card_list_out->addItem(card.pretty_name, (int)i);
     }
 
     using Model = Audio::Settings::Model;
 
     {
-      lay->addRow(QObject::tr("Device"), card_list);
+      lay->addRow(QObject::tr("Capture"), card_list_in);
 
-      auto update_dev = [=, &m, &m_disp](const PortAudioCard& dev) {
-        if(dev.raw_name != m.getCardOut())
+      auto update_dev_in = [=, &m, &m_disp](const PortAudioCard& dev) {
+        if(dev.raw_name != m.getCardIn())
         {
           m_disp.submitDeferredCommand<Audio::Settings::SetModelCardIn>(m, dev.raw_name);
-          m_disp.submitDeferredCommand<Audio::Settings::SetModelCardOut>(
-              m, dev.raw_name);
           m_disp.submitDeferredCommand<Audio::Settings::SetModelDefaultIn>(
               m, dev.inputChan);
+        }
+      };
+
+      QObject::connect(
+          card_list_in, SignalUtils::QComboBox_currentIndexChanged_int(), &v, [=](int i) {
+            auto& device = devices[card_list_in->itemData(i).toInt()];
+            update_dev_in(device);
+          });
+
+      if(m.getCardIn().isEmpty())
+      {
+        if(!devices.empty())
+        {
+          update_dev_in(devices.front());
+        }
+      }
+      else
+      {
+        setCard(card_list_in, m.getCardIn());
+      }
+    }
+
+    {
+      lay->addRow(QObject::tr("Playback"), card_list_out);
+
+      auto update_dev_out = [=, &m, &m_disp](const PortAudioCard& dev) {
+        if(dev.raw_name != m.getCardOut())
+        {
+          m_disp.submitDeferredCommand<Audio::Settings::SetModelCardOut>(
+              m, dev.raw_name);
           m_disp.submitDeferredCommand<Audio::Settings::SetModelDefaultOut>(
               m, dev.outputChan);
         }
       };
 
       QObject::connect(
-          card_list, SignalUtils::QComboBox_currentIndexChanged_int(), &v, [=](int i) {
-            auto& device = devices[card_list->itemData(i).toInt()];
-            update_dev(device);
+          card_list_out, SignalUtils::QComboBox_currentIndexChanged_int(), &v, [=](int i) {
+            auto& device = devices[card_list_out->itemData(i).toInt()];
+            update_dev_out(device);
           });
 
       if(m.getCardOut().isEmpty())
       {
         if(!devices.empty())
         {
-          update_dev(devices.front());
+          update_dev_out(devices.front());
         }
       }
       else
       {
-        setCard(card_list, m.getCardOut());
+        setCard(card_list_out, m.getCardOut());
       }
     }
 
     addBufferSizeWidget(*w, m, v);
     addSampleRateWidget(*w, m, v);
 
-    con(m, &Model::changed, w, [=, &m] { setCard(card_list, m.getCardOut()); });
+    con(m, &Model::changed, w, [=, &m] {
+      setCard(card_list_in, m.getCardIn());
+      setCard(card_list_out, m.getCardOut());
+    });
     return w;
   }
 };
