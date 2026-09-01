@@ -57,6 +57,14 @@ set(SCORE_TEST_GUARD_ALLOWED_HARNESSES
   # separate piece of work, not a regression.
   integration/scene-js-sweep.sh
   integration/video-decoder-sweep.sh
+  # The FATE-corpus decode harness (video/corpus-decode-validation). fetch- and
+  # generate- pull down or synthesize a multi-gigabyte corpus, and run-corpus /
+  # run-hwdec drive it against a built score by hand; none of them can be a ctest
+  # entry on a machine that has not fetched the corpus first.
+  corpus/fetch-fate-suite.sh
+  corpus/generate-corpus.sh
+  corpus/run-corpus.sh
+  corpus/run-hwdec.sh
 )
 
 # Executables built under tests/ that are deliberately not ctest entries.
@@ -64,6 +72,8 @@ set(SCORE_TEST_GUARD_ALLOWED_TARGETS
   # A helper binary the shell harnesses drive (${OBJECT_GALLERY} in
   # render-sweep.sh and csf-sweep.sh), not a test of its own.
   ObjectGallery
+  # Driven by the corpus/*.sh harnesses above, not by ctest.
+  score_video_corpus_tester
 )
 
 # Every directory the buildsystem created below `dir`, `dir` included.
