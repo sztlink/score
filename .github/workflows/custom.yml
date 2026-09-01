@@ -59,6 +59,9 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
+      - name: Long path support
+        run: git config --global core.longpaths true
+
       - name: Checkout code
         uses: actions/checkout@v6
         with:
