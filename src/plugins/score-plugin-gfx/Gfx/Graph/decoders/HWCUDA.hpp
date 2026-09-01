@@ -221,6 +221,7 @@ struct HWCudaVulkanDecoder : GPUVideoDecoder
          || !setupPlane(1, VK_FORMAT_R16G16_UNORM, w / 2, h / 2, 2, 2))
       {
         qDebug() << "HWCudaVulkanDecoder: interop setup failed";
+        failed = true;
         cleanup();
         // setupPlane may already have re-pointed a sampler texture at a
         // VkImage cleanup() just destroyed (createFrom). Recreate each
@@ -263,6 +264,7 @@ struct HWCudaVulkanDecoder : GPUVideoDecoder
          || !setupPlane(1, VK_FORMAT_R8G8_UNORM, w / 2, h / 2, 2, 1))
       {
         qDebug() << "HWCudaVulkanDecoder: interop setup failed";
+        failed = true;
         cleanup();
         // setupPlane may already have re-pointed a sampler texture at a
         // VkImage cleanup() just destroyed (createFrom). Recreate each
