@@ -305,11 +305,22 @@ void Window::render()
   if(onAboutToRender)
     onAboutToRender();
 
-  if(m_canRender && state)
+  // onRender is only installed by ScreenNode::startRendering; platforms that
+  // expose the window before that (vkkhrdisplay) reach here with an empty
+  // std::function, and calling it would throw bad_function_call between
+  // beginFrame and endFrame — leaving the frame recording forever.
+  if(m_canRender && state && onRender)
   {
     QRhi::FrameOpResult r = state->rhi->beginFrame(m_swapChain, {});
     if(checkDeviceLost(r))
+    {
+      // A device-lost flag raised by an earlier operation does not undo a
+      // successful beginFrame: close the frame or teardown asserts on
+      // isRecordingFrame().
+      if(r == QRhi::FrameOpSuccess && state->rhi->isRecordingFrame())
+        state->rhi->endFrame(m_swapChain, QRhi::SkipPresent);
       return;
+    }
     if(r == QRhi::FrameOpSwapChainOutOfDate)
     {
       resizeSwapChain();
@@ -320,7 +331,11 @@ void Window::render()
       }
       r = state->rhi->beginFrame(m_swapChain);
       if(checkDeviceLost(r))
+      {
+        if(r == QRhi::FrameOpSuccess && state->rhi->isRecordingFrame())
+          state->rhi->endFrame(m_swapChain, QRhi::SkipPresent);
         return;
+      }
     }
     if(r != QRhi::FrameOpSuccess)
     {
